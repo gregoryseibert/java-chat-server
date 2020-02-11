@@ -14,10 +14,17 @@ import java.util.stream.Collectors;
 public class ChatServer {
     private List<Message> messages;
     private List<ClientHandler> clientHandlers;
+    private final List<String> availableCommands;
 
     public ChatServer() {
         messages = new ArrayList<>();
         clientHandlers = new ArrayList<>();
+
+        availableCommands = new ArrayList<>();
+        availableCommands.add("\\setname");
+        availableCommands.add("\\solve");
+        availableCommands.add("\\help");
+        availableCommands.add("\\exit");
     }
 
     public void start() throws IOException {
@@ -35,13 +42,15 @@ public class ChatServer {
                 clientAddress = client.getInetAddress().getHostAddress();
                 System.out.println("New client '" + clientAddress + "' has been connected to this server.");
 
-                ClientHandler clientHandler = new ClientHandler(this, client);
+                ClientHandler clientHandler = new ClientHandler(this, client, availableCommands);
                 clientHandler.start();
                 clientHandlers.add(clientHandler);
             }
         } catch (Exception e) {
-            client.close();
             e.printStackTrace();
+            if(client != null) {
+                client.close();
+            }
         }
     }
 
@@ -63,31 +72,28 @@ public class ChatServer {
 
     class ClientHandler extends Thread {
         private final ChatServer chatServer;
-        private final User user;
+
+        private final Socket socket;
         private final BufferedReader reader;
         private final PrintWriter writer;
-        private final Socket socket;
-        private final List<String> availableCommands;
 
+        private final User user;
+        private final List<String> availableCommands;
         private final MathSolver mathSolver;
 
         private int messageCounter = 0;
         private boolean initialized = false;
+        private boolean isRunning = false;
 
-        public ClientHandler(ChatServer chatServer, Socket socket) throws IOException {
+        public ClientHandler(ChatServer chatServer, Socket socket, List<String> availableCommands) throws IOException {
             this.chatServer = chatServer;
             this.socket = socket;
+            this.availableCommands = availableCommands;
 
             user = new User(socket.getInetAddress().getHostAddress(), socket.getInetAddress().getHostAddress());
 
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             writer = new PrintWriter(socket.getOutputStream());
-
-            availableCommands = new ArrayList<>();
-            availableCommands.add("\\setname");
-            availableCommands.add("\\solve");
-            availableCommands.add("\\help");
-            availableCommands.add("\\exit");
 
             mathSolver = new MathSolver();
         }
@@ -95,11 +101,11 @@ public class ChatServer {
         @Override
         public void run() {
             String received;
-            boolean isRunning = true;
+            isRunning = true;
 
             while (isRunning) {
                 try {
-                    if(!initialized) {
+                    if (!initialized) {
                         writeCurrentMessages();
 
                         initialized = true;
@@ -107,23 +113,27 @@ public class ChatServer {
 
                     received = reader.readLine();
 
+                    if (received == null) {
+                        continue;
+                    }
+
                     System.out.println(user.getName() + ": " + received);
 
                     if (received.startsWith("\\")) {
-                        if(received.equals("\\exit")) {
+                        if (received.equals("\\exit")) {
                             writer.println("You've been disconnected from the server.");
                             writer.flush();
                             commandExit();
-                        } else if(received.startsWith("\\setname")) {
+                        } else if (received.startsWith("\\setname")) {
                             String newName = received.replace("\\setname ", "");
 
-                            if(newName.length() > 10) {
+                            if (newName.length() > 10) {
                                 writer.println("Your wanted name is too long. Maximum 10 characters are allowed");
                                 writer.flush();
-                            } else if(!newName.matches("\\w+")) {
+                            } else if (!newName.matches("\\w+")) {
                                 writer.println("Your wanted name contains not allowed characters. Only letters and numbers are allowed.");
                                 writer.flush();
-                            } else if(chatServer.isUsernameAlreadyInUse(newName)) {
+                            } else if (chatServer.isUsernameAlreadyInUse(newName)) {
                                 writer.println("Your wanted name is already in use.");
                                 writer.flush();
                             } else {
@@ -131,10 +141,10 @@ public class ChatServer {
                                 writer.flush();
                                 commandSetName(newName);
                             }
-                        } else if(received.startsWith("\\solve")) {
+                        } else if (received.startsWith("\\solve")) {
                             String equation = received.replace("\\solve", "");
 
-                            if(equation.length() == 0) {
+                            if (equation.length() == 0) {
                                 writer.println("You haven't provided the equation.");
                                 writer.flush();
                             } else {
@@ -147,17 +157,19 @@ public class ChatServer {
                                     writer.flush();
                                 }
                             }
-                        } else if(received.equals("\\help")) {
+                        } else if (received.equals("\\help")) {
                             writer.println("Available commands: " + availableCommands + ".");
                             writer.flush();
                         } else {
                             writer.println("Invalid command.");
                             writer.flush();
                         }
-                    } else {
+                    } else if(received.length() > 100) {
+                        writer.println("Your message is too long. Maximum of 100 characters is allowed.");
+                        writer.flush();
+                    } else if(received.length() > 0){
                         Message message = new Message(user, received);
                         chatServer.addMessage(message);
-                        messageCounter++;
                     }
 
                     writeCurrentMessages();
@@ -181,11 +193,16 @@ public class ChatServer {
             }
 
             try {
-                this.writer.close();
-                this.reader.close();
+                socket.close();
+                writer.close();
+                reader.close();
             } catch(IOException e) {
                 e.printStackTrace();
             }
+        }
+
+        public boolean isRunning() {
+            return isRunning;
         }
 
         private void writeCurrentMessages() {
@@ -203,10 +220,14 @@ public class ChatServer {
         }
 
         private void commandExit() throws IOException {
-            System.out.println("Client " + this.socket + " sends exit...");
-            System.out.println("Closing this connection.");
-            this.socket.close();
-            System.out.println("Connection closed");
+            System.out.println("Client '" + user.getName() + "' sends exit command.");
+            System.out.println("Closing the connection with '" + user.getName() + "'.");
+
+            socket.close();
+            writer.close();
+            reader.close();
+
+            isRunning = false;
         }
 
         private void commandSetName(String name) {
