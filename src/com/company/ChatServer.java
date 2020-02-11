@@ -42,9 +42,19 @@ public class ChatServer {
                 clientAddress = client.getInetAddress().getHostAddress();
                 System.out.println("New client '" + clientAddress + "' has been connected to this server.");
 
+                for(ClientHandler clientHandler: clientHandlers) {
+                    clientHandler.writeCustomMessage("New client has been connected to this server.");
+                }
+
                 ClientHandler clientHandler = new ClientHandler(this, client, availableCommands);
                 clientHandler.start();
                 clientHandlers.add(clientHandler);
+
+                String currentlyConnected = clientHandlers.stream().filter(ch -> !ch.getUser().getIpAddress().equals(clientHandler.getUser().getIpAddress())).map(ch -> ch.getUser().getName()).collect(Collectors.joining(", "));
+                if(currentlyConnected.length() == 0) {
+                    currentlyConnected = "---";
+                }
+                clientHandler.writeCustomMessage("Currently connected: " + currentlyConnected);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -64,6 +74,10 @@ public class ChatServer {
 
     public void addMessage(Message message) {
         messages.add(message);
+
+        for(ClientHandler clientHandler: clientHandlers) {
+            clientHandler.writeCurrentMessages();
+        }
     }
 
     public boolean isUsernameAlreadyInUse(String username) {
@@ -90,7 +104,7 @@ public class ChatServer {
             this.socket = socket;
             this.availableCommands = availableCommands;
 
-            user = new User(socket.getInetAddress().getHostAddress(), socket.getInetAddress().getHostAddress());
+            user = new User("Anonym", socket.getInetAddress().getHostAddress());
 
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             writer = new PrintWriter(socket.getOutputStream());
@@ -171,8 +185,6 @@ public class ChatServer {
                         Message message = new Message(user, received);
                         chatServer.addMessage(message);
                     }
-
-                    writeCurrentMessages();
                 } catch (IOException e) {
                     isRunning = false;
 
@@ -219,6 +231,11 @@ public class ChatServer {
             }
         }
 
+        private void writeCustomMessage(String message) {
+            writer.println(message);
+            writer.flush();
+        }
+
         private void commandExit() throws IOException {
             System.out.println("Client '" + user.getName() + "' sends exit command.");
             System.out.println("Closing the connection with '" + user.getName() + "'.");
@@ -234,6 +251,10 @@ public class ChatServer {
             System.out.println("Client '" + user.getName() + "' changed his name to '" + name + "'.");
 
             user.setName(name);
+        }
+
+        public User getUser() {
+            return user;
         }
     }
 }
