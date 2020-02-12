@@ -2,7 +2,6 @@ package com.company;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 
 public class Message {
     private User user;
@@ -25,9 +24,6 @@ public class Message {
 
     @Override
     public String toString() {
-        DateTimeFormatter dateFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy");
-        DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss");
-        //DateTimeFormatter dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        return "[" + date.format(dateFormat) + "]" + "[" + date.format(timeFormat) + "] " + user.getName() + ": " + content;
+        return user.getName() + ":\t" + content;
     }
 }

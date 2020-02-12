@@ -1,12 +1,10 @@
 package com.company;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -15,6 +13,7 @@ public class ChatServer {
     private List<Message> messages;
     private List<ClientHandler> clientHandlers;
     private final List<String> availableCommands;
+    private int userCounter = 0;
 
     public ChatServer() {
         messages = new ArrayList<>();
@@ -22,7 +21,7 @@ public class ChatServer {
 
         availableCommands = new ArrayList<>();
         availableCommands.add("\\setname");
-        availableCommands.add("\\solve");
+        availableCommands.add("\\userlist");
         availableCommands.add("\\help");
         availableCommands.add("\\exit");
     }
@@ -40,21 +39,26 @@ public class ChatServer {
 
                 String clientAddress;
                 clientAddress = client.getInetAddress().getHostAddress();
-                System.out.println("New client '" + clientAddress + "' has been connected to this server.");
 
-                for(ClientHandler clientHandler: clientHandlers) {
-                    clientHandler.writeCustomMessage("New client has been connected to this server.");
+                userCounter++;
+                User user = new User("Anonym" + userCounter, clientAddress);
+
+                for(ClientHandler ch: clientHandlers) {
+                    if(ch.getUser().getIpAddress().equals(clientAddress)) {
+                        System.out.println("New user was already connected.");
+                        user = ch.getUser();
+                        userCounter--;
+                    }
                 }
 
-                ClientHandler clientHandler = new ClientHandler(this, client, availableCommands);
+                ClientHandler clientHandler = new ClientHandler(this, client, availableCommands, user);
                 clientHandler.start();
                 clientHandlers.add(clientHandler);
 
-                String currentlyConnected = clientHandlers.stream().filter(ch -> !ch.getUser().getIpAddress().equals(clientHandler.getUser().getIpAddress())).map(ch -> ch.getUser().getName()).collect(Collectors.joining(", "));
-                if(currentlyConnected.length() == 0) {
-                    currentlyConnected = "---";
-                }
-                clientHandler.writeCustomMessage("Currently connected: " + currentlyConnected);
+                clientHandler.writeCustomMessage(getCurrentUsersString());
+
+                System.out.println("New client (IP: '" + clientAddress + "'; NAME: '" + clientHandler.getUser().getName() + "') has been connected to this server.");
+                broadcastMessage("New client '" + clientHandler.getUser().getName() + "' has been connected to this server.");
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -62,6 +66,18 @@ public class ChatServer {
                 client.close();
             }
         }
+    }
+
+    public void broadcastMessage(String message) {
+        for(ClientHandler clientHandler: clientHandlers) {
+            if(clientHandler.isRunning()) {
+                clientHandler.writeCustomMessage(message);
+            }
+        }
+    }
+
+    public String getCurrentUsersString() {
+        return "Currently connected: [" + clientHandlers.stream().filter(ClientHandler::isRunning).map(ch -> ch.getUser().getName()).collect(Collectors.joining(", ")) + "]";
     }
 
     public List<Message> getLatestMessages(int startIndex) {
@@ -93,23 +109,19 @@ public class ChatServer {
 
         private final User user;
         private final List<String> availableCommands;
-        private final MathSolver mathSolver;
 
         private int messageCounter = 0;
         private boolean initialized = false;
         private boolean isRunning = false;
 
-        public ClientHandler(ChatServer chatServer, Socket socket, List<String> availableCommands) throws IOException {
+        public ClientHandler(ChatServer chatServer, Socket socket, List<String> availableCommands, User user) throws IOException {
             this.chatServer = chatServer;
             this.socket = socket;
             this.availableCommands = availableCommands;
+            this.user = user;
 
-            user = new User("Anonym", socket.getInetAddress().getHostAddress());
-
-            reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            writer = new PrintWriter(socket.getOutputStream());
-
-            mathSolver = new MathSolver();
+            reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
         }
 
         @Override
@@ -141,8 +153,8 @@ public class ChatServer {
                         } else if (received.startsWith("\\setname")) {
                             String newName = received.replace("\\setname ", "");
 
-                            if (newName.length() > 10) {
-                                writer.println("Your wanted name is too long. Maximum 10 characters are allowed");
+                            if (newName.length() > 12) {
+                                writer.println("Your wanted name is too long. Maximum 12 characters are allowed");
                                 writer.flush();
                             } else if (!newName.matches("\\w+")) {
                                 writer.println("Your wanted name contains not allowed characters. Only letters and numbers are allowed.");
@@ -151,26 +163,14 @@ public class ChatServer {
                                 writer.println("Your wanted name is already in use.");
                                 writer.flush();
                             } else {
-                                writer.println("You've changed your name from '" + user.getName() + "' to '" + newName + "'.");
+                                writer.println("You've successfully changed your name.");
                                 writer.flush();
+                                chatServer.broadcastMessage("The user '" + user.getName() + "' changed his name to '" + newName + "'.");
                                 commandSetName(newName);
                             }
-                        } else if (received.startsWith("\\solve")) {
-                            String equation = received.replace("\\solve", "");
-
-                            if (equation.length() == 0) {
-                                writer.println("You haven't provided the equation.");
-                                writer.flush();
-                            } else {
-                                try {
-                                    double result = mathSolver.input(equation);
-                                    writer.println("Result is '" + result + "'.");
-                                    writer.flush();
-                                } catch (NullPointerException e) {
-                                    writer.println("Your equation is invalid.");
-                                    writer.flush();
-                                }
-                            }
+                        } else if (received.startsWith("\\userlist")) {
+                            writer.println(chatServer.getCurrentUsersString());
+                            writer.flush();
                         } else if (received.equals("\\help")) {
                             writer.println("Available commands: " + availableCommands + ".");
                             writer.flush();
@@ -178,8 +178,8 @@ public class ChatServer {
                             writer.println("Invalid command.");
                             writer.flush();
                         }
-                    } else if(received.length() > 100) {
-                        writer.println("Your message is too long. Maximum of 100 characters is allowed.");
+                    } else if(received.length() > 250) {
+                        writer.println("Your message is too long. Maximum of 250 characters is allowed.");
                         writer.flush();
                     } else if(received.length() > 0){
                         Message message = new Message(user, received);
@@ -190,15 +190,16 @@ public class ChatServer {
 
                     switch(e.getMessage()) {
                         case "Connection reset":
-                            System.out.println("Client '" + user.getName() + "' has disconnected from the server.");
                             break;
                         case "socket closed":
-                            System.out.println("Client '" + user.getName() + "' has been disconnected from the server.");
                             break;
                         default:
                             e.printStackTrace();
                             break;
                     }
+
+                    chatServer.broadcastMessage("The user '" + user.getName() + "' has been disconnected from the server.");
+                    System.out.println("Client '" + user.getName() + "' has been disconnected from the server.");
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -239,6 +240,8 @@ public class ChatServer {
         private void commandExit() throws IOException {
             System.out.println("Client '" + user.getName() + "' sends exit command.");
             System.out.println("Closing the connection with '" + user.getName() + "'.");
+
+            chatServer.broadcastMessage("The user '" + user.getName() + "' has exited.");
 
             socket.close();
             writer.close();
