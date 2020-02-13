@@ -1,5 +1,8 @@
 package com.company;
 
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Whitelist;
+
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -13,6 +16,8 @@ public class ChatServer {
     private List<Message> messages;
     private List<ClientHandler> clientHandlers;
     private final List<String> availableCommands;
+    private final List<String> colorList;
+    private Whitelist whitelist;
     private int userCounter = 0;
 
     public ChatServer() {
@@ -21,9 +26,24 @@ public class ChatServer {
 
         availableCommands = new ArrayList<>();
         availableCommands.add("\\setname");
+        availableCommands.add("\\setcolor");
         availableCommands.add("\\userlist");
         availableCommands.add("\\help");
         availableCommands.add("\\exit");
+
+        colorList = new ArrayList<>();
+        colorList.add("red");
+        colorList.add("gold");
+        colorList.add("olive");
+        colorList.add("maroon");
+        colorList.add("lime");
+        colorList.add("green");
+        colorList.add("teal");
+        colorList.add("navy");
+        colorList.add("fuchsia");
+        colorList.add("purple");
+
+        whitelist = Whitelist.none();
     }
 
     public void start() throws IOException {
@@ -35,19 +55,18 @@ public class ChatServer {
         Socket client = null;
         try {
             while(true) {
+                boolean userWasAlreadyConnected = false;
                 client = server.accept();
 
                 String clientAddress;
                 clientAddress = client.getInetAddress().getHostAddress();
 
-                userCounter++;
-                User user = new User("Anonym" + userCounter, clientAddress);
+                User user = new User("Anonym" + (userCounter + 1), clientAddress, colorList.get(userCounter % colorList.size()));
 
                 for(ClientHandler ch: clientHandlers) {
-                    if(ch.getUser().getIpAddress().equals(clientAddress)) {
-                        System.out.println("New user was already connected.");
+                    if(!userWasAlreadyConnected && ch.getUser().getIpAddress().equals(clientAddress)) {
                         user = ch.getUser();
-                        userCounter--;
+                        userWasAlreadyConnected = true;
                     }
                 }
 
@@ -56,9 +75,16 @@ public class ChatServer {
                 clientHandlers.add(clientHandler);
 
                 clientHandler.writeCustomMessage(getCurrentUsersString());
+                clientHandler.writeCustomMessage("<b>Use the command \"\\help\" to get a list of all supported commands.</b>");
 
-                System.out.println("New client (IP: '" + clientAddress + "'; NAME: '" + clientHandler.getUser().getName() + "') has been connected to this server.");
-                broadcastMessage("New client '" + clientHandler.getUser().getName() + "' has been connected to this server.");
+                if(userWasAlreadyConnected) {
+                    System.out.println("Client (IP: '" + clientAddress + "'; HOSTNAME: '" + client.getInetAddress().getHostName() + "'; NAME: '" + clientHandler.getUser().getName() + "') has reentered this server.");
+                    broadcastMessage("Client '" + clientHandler.getUser().getName() + "' has reentered this server.");
+                } else {
+                    userCounter++;
+                    System.out.println("New client (IP: '" + clientAddress + "'; NAME: '" + clientHandler.getUser().getName() + "') has been connected to this server.");
+                    broadcastMessage("New client '" + clientHandler.getUser().getName() + "' has been connected to this server.");
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -71,13 +97,13 @@ public class ChatServer {
     public void broadcastMessage(String message) {
         for(ClientHandler clientHandler: clientHandlers) {
             if(clientHandler.isRunning()) {
-                clientHandler.writeCustomMessage(message);
+                clientHandler.writeCustomMessage("<b>" + message + "</b>");
             }
         }
     }
 
     public String getCurrentUsersString() {
-        return "Currently connected: [" + clientHandlers.stream().filter(ClientHandler::isRunning).map(ch -> ch.getUser().getName()).collect(Collectors.joining(", ")) + "]";
+        return "<b>Currently connected: [" + clientHandlers.stream().filter(ClientHandler::isRunning).map(ch -> ch.getUser().getName()).collect(Collectors.joining(", ")) + "]</b>";
     }
 
     public List<Message> getLatestMessages(int startIndex) {
@@ -97,7 +123,7 @@ public class ChatServer {
     }
 
     public boolean isUsernameAlreadyInUse(String username) {
-        return clientHandlers.stream().map(c -> c.user.getName()).anyMatch(c -> c.equals(username));
+        return clientHandlers.stream().map(c -> c.user.getName().toLowerCase()).anyMatch(c -> c.equals(username.toLowerCase()));
     }
 
     class ClientHandler extends Thread {
@@ -122,6 +148,8 @@ public class ChatServer {
 
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
             writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
+
+            isRunning = true;
         }
 
         @Override
@@ -168,6 +196,15 @@ public class ChatServer {
                                 chatServer.broadcastMessage("The user '" + user.getName() + "' changed his name to '" + newName + "'.");
                                 commandSetName(newName);
                             }
+                        } else if(received.startsWith("\\setcolor")) {
+                            String color = received.replace("\\setcolor ", "");
+
+                            if(!color.matches("^#([A-Fa-f0-9]{6})$")) {
+                                writer.println("The provided color is invalid. Example (hex): #A0A0A0.");
+                                writer.flush();
+                            } else {
+                                user.setColor(color);
+                            }
                         } else if (received.startsWith("\\userlist")) {
                             writer.println(chatServer.getCurrentUsersString());
                             writer.flush();
@@ -182,7 +219,8 @@ public class ChatServer {
                         writer.println("Your message is too long. Maximum of 250 characters is allowed.");
                         writer.flush();
                     } else if(received.length() > 0){
-                        Message message = new Message(user, received);
+                        String cleanContent = Jsoup.clean(received, whitelist);
+                        Message message = new Message(user, cleanContent);
                         chatServer.addMessage(message);
                     }
                 } catch (IOException e) {

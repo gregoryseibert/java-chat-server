@@ -24,6 +24,6 @@ public class Message {
 
     @Override
     public String toString() {
-        return user.getName() + ":\t" + content;
+        return "<b color=\"" + user.getColor() + "\">" + user.getName() + "</b>:\t" + content;
     }
 }
