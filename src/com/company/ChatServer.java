@@ -1,25 +1,22 @@
 package com.company;
 
-import org.jsoup.Jsoup;
 import org.jsoup.safety.Whitelist;
 
-import java.io.*;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class ChatServer {
+    private final Map<String, ICommand> commands;
+    private final List<String> colorList;
     private List<Message> messages;
     private List<ClientHandler> clientHandlers;
-    private final List<String> availableCommands;
-    private final List<String> colorList;
     private Whitelist whitelist;
     private int userCounter = 0;
 
@@ -27,11 +24,11 @@ public class ChatServer {
         messages = new ArrayList<>();
         clientHandlers = new ArrayList<>();
 
-        availableCommands = new ArrayList<>();
-        availableCommands.add("\\setname");
-        availableCommands.add("\\userlist");
-        availableCommands.add("\\help");
-        availableCommands.add("\\exit");
+        commands = new HashMap<>();
+        commands.put("setname", this::commandSetName);
+        commands.put("userlist", (ClientHandler clientHandler, String value) -> commandUserlist(clientHandler));
+        commands.put("help", (ClientHandler clientHandler, String value) -> commandHelp(clientHandler));
+        commands.put("exit", (ClientHandler clientHandler, String value) -> commandExit(clientHandler));
 
         colorList = new ArrayList<>();
         colorList.add("red");
@@ -56,7 +53,7 @@ public class ChatServer {
 
         Socket client = null;
         try {
-            while(true) {
+            while (true) {
                 boolean userWasAlreadyConnected = false;
                 client = server.accept();
 
@@ -65,21 +62,21 @@ public class ChatServer {
 
                 User user = new User("Anonym" + (userCounter + 1), clientAddress, colorList.get(userCounter % colorList.size()));
 
-                for(ClientHandler ch: clientHandlers) {
-                    if(!userWasAlreadyConnected && ch.getUser().getIpAddress().equals(clientAddress)) {
+                for (ClientHandler ch : clientHandlers) {
+                    if (!userWasAlreadyConnected && ch.getUser().getIpAddress().equals(clientAddress)) {
                         user = ch.getUser();
                         userWasAlreadyConnected = true;
                     }
                 }
 
-                ClientHandler clientHandler = new ClientHandler(this, client, availableCommands, user);
+                ClientHandler clientHandler = new ClientHandler(this, client, commands, user, whitelist);
                 clientHandler.start();
                 clientHandlers.add(clientHandler);
 
                 clientHandler.writeCustomMessage(getCurrentUsersString());
                 clientHandler.writeCustomMessage("<b>Use the command \"\\help\" to get a list of all supported commands.</b>");
 
-                if(userWasAlreadyConnected) {
+                if (userWasAlreadyConnected) {
                     System.out.println("Client (IP: '" + clientAddress + "'; HOSTNAME: '" + client.getInetAddress().getHostName() + "'; NAME: '" + clientHandler.getUser().getName() + "') has reentered this server.");
                     broadcastMessage("Client '" + clientHandler.getUser().getName() + "' has reentered this server.");
                 } else {
@@ -90,15 +87,50 @@ public class ChatServer {
             }
         } catch (Exception e) {
             e.printStackTrace();
-            if(client != null) {
+            if (client != null) {
                 client.close();
             }
         }
     }
 
+    public void commandSetName(ClientHandler clientHandler, String newUsername) {
+        if (newUsername == null) {
+            clientHandler.writeCustomMessage("You haven't provided the username.");
+        } else if (newUsername.length() > 12) {
+            clientHandler.writeCustomMessage("Your wanted name is too long. Maximum 12 characters are allowed.");
+        } else if (!newUsername.matches("\\w+")) {
+            clientHandler.writeCustomMessage("Your wanted name contains not allowed characters. Only letters and numbers are allowed.");
+        } else if (isUsernameAlreadyInUse(newUsername)) {
+            clientHandler.writeCustomMessage("Your wanted name is already in use.");
+        } else {
+            clientHandler.writeCustomMessage("You've successfully changed your name.");
+            broadcastMessage("The user '" + clientHandler.getUser().getName() + "' changed his name to '" + newUsername + "'.");
+
+            clientHandler.getUser().setName(newUsername);
+        }
+    }
+
+    public void commandUserlist(ClientHandler clientHandler) {
+        clientHandler.writeCustomMessage(getCurrentUsersString());
+    }
+
+    public void commandHelp(ClientHandler clientHandler) {
+        clientHandler.writeCustomMessage("<b>Available commands: " + commands.keySet().toString() + "</b>");
+    }
+
+    public void commandExit(ClientHandler clientHandler) {
+        System.out.println("Client '" + clientHandler.getUser().getName() + "' sends exit command.");
+        System.out.println("Closing the connection with '" + clientHandler.getUser().getName() + "'.");
+        broadcastMessage("The user '" + clientHandler.getUser().getName() + "' has exited.");
+
+        clientHandler.exit();
+    }
+
     public void broadcastMessage(String message) {
-        for(ClientHandler clientHandler: clientHandlers) {
-            if(clientHandler.isRunning()) {
+        System.out.println(message);
+
+        for (ClientHandler clientHandler : clientHandlers) {
+            if (clientHandler.isRunning()) {
                 clientHandler.writeCustomMessage("<b>" + message + "</b>");
             }
         }
@@ -123,207 +155,12 @@ public class ChatServer {
     public void addMessage(Message message) {
         messages.add(message);
 
-        for(ClientHandler clientHandler: clientHandlers) {
+        for (ClientHandler clientHandler : clientHandlers) {
             clientHandler.writeCurrentMessages();
         }
     }
 
     public boolean isUsernameAlreadyInUse(String username) {
-        return clientHandlers.stream().map(c -> c.user.getName().toLowerCase()).anyMatch(c -> c.equals(username.toLowerCase()));
-    }
-
-    class ClientHandler extends Thread {
-        private final ChatServer chatServer;
-
-        private final Socket socket;
-        private final BufferedReader reader;
-        private final PrintWriter writer;
-
-        private final User user;
-        private final List<String> availableCommands;
-
-        private int messageCounter = 0;
-        private boolean initialized = false;
-        private boolean isRunning = false;
-
-        public ClientHandler(ChatServer chatServer, Socket socket, List<String> availableCommands, User user) throws IOException {
-            this.chatServer = chatServer;
-            this.socket = socket;
-            this.availableCommands = availableCommands;
-            this.user = user;
-
-            reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
-
-            isRunning = true;
-        }
-
-        @Override
-        public void run() {
-            String received;
-            isRunning = true;
-
-            while (isRunning) {
-                try {
-                    if (!initialized) {
-                        writeCurrentMessages();
-
-                        initialized = true;
-                    }
-
-                    received = reader.readLine();
-
-                    if (received == null) {
-                        continue;
-                    }
-
-                    System.out.println(user.getName() + ": " + received);
-
-                    if (received.startsWith("\\")) {
-                        if (received.equals("\\exit")) {
-                            writer.println("You've been disconnected from the server.");
-                            writer.flush();
-                            commandExit();
-                        } else if (received.startsWith("\\setname")) {
-                            String newName = received.replace("\\setname ", "");
-
-                            if (newName.length() > 12) {
-                                writer.println("Your wanted name is too long. Maximum 12 characters are allowed");
-                                writer.flush();
-                            } else if (!newName.matches("\\w+")) {
-                                writer.println("Your wanted name contains not allowed characters. Only letters and numbers are allowed.");
-                                writer.flush();
-                            } else if (chatServer.isUsernameAlreadyInUse(newName)) {
-                                writer.println("Your wanted name is already in use.");
-                                writer.flush();
-                            } else {
-                                writer.println("You've successfully changed your name.");
-                                writer.flush();
-                                chatServer.broadcastMessage("The user '" + user.getName() + "' changed his name to '" + newName + "'.");
-                                commandSetName(newName);
-                            }
-                        } else if (received.startsWith("\\userlist")) {
-                            writer.println(chatServer.getCurrentUsersString());
-                            writer.flush();
-                        } else if (received.equals("\\help")) {
-                            writer.println("Available commands: " + availableCommands + ".");
-                            writer.flush();
-                        } else {
-                            writer.println("Invalid command.");
-                            writer.flush();
-                        }
-                    } else if(received.length() > 250) {
-                        writer.println("Your message is too long. Maximum of 250 characters is allowed.");
-                        writer.flush();
-                    } else if(received.length() > 0){
-                        String cleanContent = Jsoup.clean(received, whitelist);
-
-                        Message message = new Message(user, cleanContent);
-
-                        Pattern pattern = Pattern.compile("(@(\\w+))+");
-                        Matcher matcher = pattern.matcher(cleanContent);
-                        while(matcher.find()) {
-                            String recipientName = matcher.group(2);
-                            User recipient = chatServer.getUserByUsername(recipientName);
-                            if(recipient != null) {
-                                message.addRecipient(recipient);
-                            }
-                        }
-
-                        chatServer.addMessage(message);
-                    }
-                } catch (IOException e) {
-                    isRunning = false;
-
-                    switch(e.getMessage()) {
-                        case "Connection reset":
-                        case "socket closed":
-                            break;
-                        default:
-                            e.printStackTrace();
-                            break;
-                    }
-
-                    chatServer.broadcastMessage("The user '" + user.getName() + "' has been disconnected from the server.");
-                    System.out.println("Client '" + user.getName() + "' has been disconnected from the server.");
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-
-            try {
-                socket.close();
-                writer.close();
-                reader.close();
-            } catch(IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        public boolean isRunning() {
-            return isRunning;
-        }
-
-        private void writeCurrentMessages() {
-            int currentNumberOfMessages = chatServer.getCurrentNumberOfMessages();
-            if(currentNumberOfMessages > messageCounter) {
-                List<Message> messages = chatServer.getLatestMessages(messageCounter);
-
-                StringBuilder messagesString = new StringBuilder();
-
-                for(Message message: messages) {
-                    List<User> recipients = message.getRecipients();
-                    if(recipients.contains(user)) {
-                        messagesString.append("<b color=\"")
-                                .append(user.getColor())
-                                .append("\">")
-                                .append(message.getUser().getName())
-                                .append("</b>:\t")
-                                .append("<u>")
-                                .append(message.getContent())
-                                .append("</u>");
-                    } else {
-                        messagesString.append(message);
-                    }
-
-                    if(messages.indexOf(message) != messages.size() - 1) {
-                        messagesString.append("\n");
-                    }
-                }
-
-                writer.println(messagesString);
-                writer.flush();
-
-                messageCounter = currentNumberOfMessages;
-            }
-        }
-
-        private void writeCustomMessage(String message) {
-            writer.println(message);
-            writer.flush();
-        }
-
-        private void commandExit() throws IOException {
-            System.out.println("Client '" + user.getName() + "' sends exit command.");
-            System.out.println("Closing the connection with '" + user.getName() + "'.");
-
-            chatServer.broadcastMessage("The user '" + user.getName() + "' has exited.");
-
-            socket.close();
-            writer.close();
-            reader.close();
-
-            isRunning = false;
-        }
-
-        private void commandSetName(String name) {
-            System.out.println("Client '" + user.getName() + "' changed his name to '" + name + "'.");
-
-            user.setName(name);
-        }
-
-        public User getUser() {
-            return user;
-        }
+        return clientHandlers.stream().map(c -> c.getUser().getName().toLowerCase()).anyMatch(c -> c.equals(username.toLowerCase()));
     }
 }

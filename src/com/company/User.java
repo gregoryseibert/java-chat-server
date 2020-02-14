@@ -23,7 +23,9 @@ public class User {
         return ipAddress;
     }
 
-    public String getColor() { return color; }
+    public String getColor() {
+        return color;
+    }
 
     @Override
     public boolean equals(Object obj) {
