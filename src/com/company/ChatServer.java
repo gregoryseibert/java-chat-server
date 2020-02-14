@@ -10,6 +10,9 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class ChatServer {
@@ -26,7 +29,6 @@ public class ChatServer {
 
         availableCommands = new ArrayList<>();
         availableCommands.add("\\setname");
-        availableCommands.add("\\setcolor");
         availableCommands.add("\\userlist");
         availableCommands.add("\\help");
         availableCommands.add("\\exit");
@@ -82,7 +84,7 @@ public class ChatServer {
                     broadcastMessage("Client '" + clientHandler.getUser().getName() + "' has reentered this server.");
                 } else {
                     userCounter++;
-                    System.out.println("New client (IP: '" + clientAddress + "'; NAME: '" + clientHandler.getUser().getName() + "') has been connected to this server.");
+                    System.out.println("New client (IP: '" + clientAddress + "'; HOSTNAME: '" + client.getInetAddress().getHostName() + "'; NAME: '" + clientHandler.getUser().getName() + "') has been connected to this server.");
                     broadcastMessage("New client '" + clientHandler.getUser().getName() + "' has been connected to this server.");
                 }
             }
@@ -104,6 +106,10 @@ public class ChatServer {
 
     public String getCurrentUsersString() {
         return "<b>Currently connected: [" + clientHandlers.stream().filter(ClientHandler::isRunning).map(ch -> ch.getUser().getName()).collect(Collectors.joining(", ")) + "]</b>";
+    }
+
+    public User getUserByUsername(String username) {
+        return clientHandlers.stream().filter(ClientHandler::isRunning).map(ClientHandler::getUser).filter(user -> user.getName().equals(username)).findFirst().orElse(null);
     }
 
     public List<Message> getLatestMessages(int startIndex) {
@@ -196,15 +202,6 @@ public class ChatServer {
                                 chatServer.broadcastMessage("The user '" + user.getName() + "' changed his name to '" + newName + "'.");
                                 commandSetName(newName);
                             }
-                        } else if(received.startsWith("\\setcolor")) {
-                            String color = received.replace("\\setcolor ", "");
-
-                            if(!color.matches("^#([A-Fa-f0-9]{6})$")) {
-                                writer.println("The provided color is invalid. Example (hex): #A0A0A0.");
-                                writer.flush();
-                            } else {
-                                user.setColor(color);
-                            }
                         } else if (received.startsWith("\\userlist")) {
                             writer.println(chatServer.getCurrentUsersString());
                             writer.flush();
@@ -220,7 +217,19 @@ public class ChatServer {
                         writer.flush();
                     } else if(received.length() > 0){
                         String cleanContent = Jsoup.clean(received, whitelist);
+
                         Message message = new Message(user, cleanContent);
+
+                        Pattern pattern = Pattern.compile("(@(\\w+))+");
+                        Matcher matcher = pattern.matcher(cleanContent);
+                        while(matcher.find()) {
+                            String recipientName = matcher.group(2);
+                            User recipient = chatServer.getUserByUsername(recipientName);
+                            if(recipient != null) {
+                                message.addRecipient(recipient);
+                            }
+                        }
+
                         chatServer.addMessage(message);
                     }
                 } catch (IOException e) {
@@ -228,7 +237,6 @@ public class ChatServer {
 
                     switch(e.getMessage()) {
                         case "Connection reset":
-                            break;
                         case "socket closed":
                             break;
                         default:
@@ -261,7 +269,27 @@ public class ChatServer {
             if(currentNumberOfMessages > messageCounter) {
                 List<Message> messages = chatServer.getLatestMessages(messageCounter);
 
-                String messagesString = messages.stream().map(Object::toString).collect(Collectors.joining("\n"));
+                StringBuilder messagesString = new StringBuilder();
+
+                for(Message message: messages) {
+                    List<User> recipients = message.getRecipients();
+                    if(recipients.contains(user)) {
+                        messagesString.append("<b color=\"")
+                                .append(user.getColor())
+                                .append("\">")
+                                .append(message.getUser().getName())
+                                .append("</b>:\t")
+                                .append("<u>")
+                                .append(message.getContent())
+                                .append("</u>");
+                    } else {
+                        messagesString.append(message);
+                    }
+
+                    if(messages.indexOf(message) != messages.size() - 1) {
+                        messagesString.append("\n");
+                    }
+                }
 
                 writer.println(messagesString);
                 writer.flush();
