@@ -6,10 +6,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class ChatServer {
@@ -26,21 +23,13 @@ public class ChatServer {
 
         commands = new HashMap<>();
         commands.put("setname", this::commandSetName);
-        commands.put("userlist", (ClientHandler clientHandler, String value) -> commandUserlist(clientHandler));
+        commands.put("userlist", (ClientHandler clientHandler, String value) -> commandUserList(clientHandler));
         commands.put("help", (ClientHandler clientHandler, String value) -> commandHelp(clientHandler));
         commands.put("exit", (ClientHandler clientHandler, String value) -> commandExit(clientHandler));
 
-        colorList = new ArrayList<>();
-        colorList.add("red");
-        colorList.add("gold");
-        colorList.add("olive");
-        colorList.add("maroon");
-        colorList.add("lime");
-        colorList.add("green");
-        colorList.add("teal");
-        colorList.add("navy");
-        colorList.add("fuchsia");
-        colorList.add("purple");
+        colorList = new ArrayList<>(
+                Arrays.asList("red", "gold", "olive", "maroon", "lime", "green", "teal", "navy", "fuchsia", "purple")
+        );
 
         whitelist = Whitelist.none();
     }
@@ -110,7 +99,7 @@ public class ChatServer {
         }
     }
 
-    public void commandUserlist(ClientHandler clientHandler) {
+    public void commandUserList(ClientHandler clientHandler) {
         clientHandler.writeCustomMessage(getCurrentUsersString());
     }
 
