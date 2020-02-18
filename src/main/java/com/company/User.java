@@ -27,6 +27,10 @@ public class User {
         return color;
     }
 
+    public void setColor(String color) {
+        this.color = color;
+    }
+
     @Override
     public boolean equals(Object obj) {
         User user = (User) obj;

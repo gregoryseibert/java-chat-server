@@ -69,6 +69,7 @@ public class ClientHandler extends Thread {
                         ICommand command = commands.get(matcher.group(1));
 
                         if (command != null) {
+                            writeCustomMessage("Executing command '" + matcher.group(1) + "'.");
                             command.function(this, matcher.group(3));
                         } else {
                             writeCustomMessage("Unknown command '" + matcher.group(1) + "'.");
@@ -137,7 +138,7 @@ public class ClientHandler extends Thread {
                 List<User> recipients = message.getRecipients();
                 if (recipients.contains(user)) {
                     messagesString.append("<b color=\"")
-                            .append(user.getColor())
+                            .append(message.getUser().getColor())
                             .append("\">")
                             .append(message.getUser().getName())
                             .append("</b>:\t")
