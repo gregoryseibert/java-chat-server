@@ -61,7 +61,7 @@ public class ChatServer {
         boolean isRunning = true;
         Socket client = null;
 
-        while(isRunning) {
+        while (isRunning) {
             try {
                 boolean userWasAlreadyConnected = false;
                 client = server.accept();
@@ -106,10 +106,10 @@ public class ChatServer {
     }
 
     public void commandCanteen(ClientHandler clientHandler, String value) {
-        if(canteenMenuHandler != null) {
+        if (canteenMenuHandler != null) {
             System.out.println(value);
 
-            if(value == null || value.length() == 0 || !value.matches("[1-5]")) {
+            if (value == null || value.length() == 0 || !value.matches("[1-5]")) {
                 LocalDate date = LocalDate.now();
                 DayOfWeek dayOfWeek = date.getDayOfWeek();
                 List<String> menu = canteenMenuHandler.getMenuOfDay(dayOfWeek);

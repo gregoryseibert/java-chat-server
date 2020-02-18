@@ -16,14 +16,6 @@ public class CanteenMenuHandler {
     private Pattern pattern;
     private List<String> hauptgerichte, hauptgerichteSelbstentnahme, frontcookings, hauptgaenge;
 
-    enum WeekDay {
-        MONDAY,
-        TUESDAY,
-        WEDNESDAY,
-        THURSDAY,
-        FRIDAY
-    }
-
     public CanteenMenuHandler(String url) throws IOException {
         this.url = url;
 
@@ -57,19 +49,19 @@ public class CanteenMenuHandler {
 
         List<String> menu = new ArrayList<>();
 
-        if(index < hauptgerichte.size()) {
+        if (index < hauptgerichte.size()) {
             menu.add(hauptgerichte.get(index));
         }
 
-        if(index < hauptgerichteSelbstentnahme.size()) {
+        if (index < hauptgerichteSelbstentnahme.size()) {
             menu.add(hauptgerichteSelbstentnahme.get(index));
         }
 
-        if(index < frontcookings.size()) {
+        if (index < frontcookings.size()) {
             menu.add(frontcookings.get(index));
         }
 
-        if(index < hauptgaenge.size()) {
+        if (index < hauptgaenge.size()) {
             menu.add(hauptgaenge.get(index));
         }
 
@@ -118,5 +110,13 @@ public class CanteenMenuHandler {
 
     private String cleanString(String string) {
         return string.replace("\n", " ").replace("\r", " ").trim().replaceAll(" +", " ");
+    }
+
+    enum WeekDay {
+        MONDAY,
+        TUESDAY,
+        WEDNESDAY,
+        THURSDAY,
+        FRIDAY
     }
 }
