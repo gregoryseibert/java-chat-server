@@ -8,6 +8,8 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,12 +22,17 @@ public class ClientHandler extends Thread {
 
     private final User user;
     private final Map<String, ICommand> commands;
-
     private final Whitelist whitelist;
+    private final Timer messageWritingTimer;
 
     private int messageCounter = 0;
     private boolean initialized = false;
-    private boolean isRunning = false;
+    private boolean isRunning;
+    private boolean messageWritingLock = false;
+
+    private final int maximumMessageLength = 250;
+    private final int messageWritingLockTreshhold = 200;
+    private final String commandPattern = "\\\\(\\w+)(\\s([a-zA-Z0-9äöüÄÖÜ]+))?";
 
     public ClientHandler(ChatServer chatServer, Socket socket, Map<String, ICommand> commands, User user, Whitelist whitelist) throws IOException {
         this.chatServer = chatServer;
@@ -36,6 +43,8 @@ public class ClientHandler extends Thread {
 
         reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
+
+        messageWritingTimer = new Timer();
 
         isRunning = true;
     }
@@ -55,45 +64,10 @@ public class ClientHandler extends Thread {
 
                 received = reader.readLine();
 
-                if (received == null) {
-                    continue;
-                }
-
-                System.out.println(user.getName() + ": " + received);
-
-                if (received.startsWith("\\")) {
-                    Pattern pattern = Pattern.compile("\\\\(\\w+)(\\s([a-zA-Z0-9äöüÄÖÜ]+))?");
-                    Matcher matcher = pattern.matcher(received);
-
-                    if (matcher.find()) {
-                        ICommand command = commands.get(matcher.group(1));
-
-                        if (command != null) {
-                            writeCustomMessage("Executing command '" + matcher.group(1) + "'.");
-                            command.function(this, matcher.group(3));
-                        } else {
-                            writeCustomMessage("Unknown command '" + matcher.group(1) + "'.");
-                        }
-                    }
-                } else if (received.length() > 250) {
-                    writer.println("Your message is too long. Maximum of 250 characters is allowed.");
-                    writer.flush();
-                } else if (received.length() > 0) {
-                    String cleanContent = Jsoup.clean(received, whitelist);
-
-                    Message message = new Message(user, cleanContent);
-
-                    Pattern pattern = Pattern.compile("(@(\\w+))+");
-                    Matcher matcher = pattern.matcher(cleanContent);
-                    while (matcher.find()) {
-                        String recipientName = matcher.group(2);
-                        User recipient = chatServer.getUserByUsername(recipientName);
-                        if (recipient != null) {
-                            message.addRecipient(recipient);
-                        }
-                    }
-
-                    chatServer.addMessage(message);
+                if (received != null && !messageWritingLock) {
+                    handleReceivedString(received);
+                } else if(received != null) {
+                    System.out.println(user.getName() + " tried to spam messages.");
                 }
             } catch (IOException e) {
                 isRunning = false;
@@ -121,6 +95,64 @@ public class ClientHandler extends Thread {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private void handleReceivedString(String received) {
+        messageWritingLock = true;
+
+        messageWritingTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                messageWritingLock = false;
+            }
+        }, messageWritingLockTreshhold);
+
+        System.out.println(user.getName() + ": " + received);
+
+        if (received.startsWith("\\")) {
+            handleCommand(received);
+        } else if (received.length() > maximumMessageLength) {
+            writer.println("Your message is too long. Maximum of 250 characters is allowed.");
+            writer.flush();
+        } else if (received.length() > 0) {
+            handleMessage(received);
+        }
+    }
+
+    private void handleCommand(String received) {
+        Pattern pattern = Pattern.compile(commandPattern);
+        Matcher matcher = pattern.matcher(received);
+
+        if (matcher.find()) {
+            ICommand command = commands.get(matcher.group(1));
+
+            if (command != null) {
+                writeCustomMessage("Executing command '" + matcher.group(1) + "'.");
+                command.function(this, matcher.group(3));
+            } else {
+                writeCustomMessage("Unknown command '" + matcher.group(1) + "'.");
+            }
+        } else {
+            writeCustomMessage("Couldn't parse command.");
+        }
+    }
+
+    private void handleMessage(String received) {
+        String cleanContent = Jsoup.clean(received, whitelist);
+
+        Message message = new Message(user, cleanContent);
+
+        Pattern pattern = Pattern.compile("(@(\\w+))+");
+        Matcher matcher = pattern.matcher(cleanContent);
+        while (matcher.find()) {
+            String recipientName = matcher.group(2);
+            User recipient = chatServer.getUserByUsername(recipientName);
+            if (recipient != null) {
+                message.addRecipient(recipient);
+            }
+        }
+
+        chatServer.addMessage(message);
     }
 
     public boolean isRunning() {
