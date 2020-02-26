@@ -37,17 +37,7 @@ public class ChatServer {
                 Arrays.asList("red", "#a38a00", "olive", "maroon", "lime", "green", "teal", "navy", "fuchsia", "purple")
         );
 
-        Calendar cal = Calendar.getInstance();
-        cal.setTime(new Date());
-
-        String canteenURL = "http://boeblingen.eurest.de/assets/technologie-and-businesspark-boeblingen/restaurant-boeblingen/Microsite/Restaurant-ESS-36-Speiseplan-KW-";
-        canteenURL += new DecimalFormat("00").format(cal.get(Calendar.WEEK_OF_YEAR)) + "-" + cal.get(Calendar.YEAR) + ".pdf";
-
-        try {
-            canteenMenuHandler = new CanteenMenuHandler(canteenURL);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        initCanteenMenuHandler();
 
         whitelist = Whitelist.none();
     }
@@ -106,9 +96,14 @@ public class ChatServer {
     }
 
     public void commandCanteen(ClientHandler clientHandler, String value) {
-        if (canteenMenuHandler != null) {
-            System.out.println(value);
+        Calendar cal = Calendar.getInstance();
+        cal.setTime(new Date());
 
+        if(canteenMenuHandler != null && !canteenMenuHandler.isRecent(cal.get(Calendar.WEEK_OF_YEAR))) {
+            initCanteenMenuHandler();
+        }
+
+        if (canteenMenuHandler != null) {
             if (value == null || value.length() == 0 || !value.matches("[1-5]")) {
                 LocalDate date = LocalDate.now();
                 DayOfWeek dayOfWeek = date.getDayOfWeek();
@@ -119,8 +114,6 @@ public class ChatServer {
                 List<String> menu = canteenMenuHandler.getMenuOfDay(dayOfWeek);
                 clientHandler.writeCustomMessage("<b>" + StringUtils.capitalize(dayOfWeek.name().toLowerCase()) + "'s canteen menu: \n" + String.join("\n", menu) + "</b>");
             }
-
-
         } else {
             clientHandler.writeCustomMessage("Error while fetching canteen menu.");
         }
@@ -129,11 +122,11 @@ public class ChatServer {
     public void commandSetName(ClientHandler clientHandler, String newUsername) {
         if (newUsername == null) {
             clientHandler.writeCustomMessage("You haven't provided the username.");
-        } else if (newUsername.length() > 12) {
-            clientHandler.writeCustomMessage("Your wanted name is too long. Maximum 12 characters are allowed.");
+        } else if (newUsername.length() > 16) {
+            clientHandler.writeCustomMessage("Your wanted name is too long. Maximum 16 characters are allowed.");
         } else if (newUsername.length() < 3) {
             clientHandler.writeCustomMessage("Your wanted name is too short. Minimum 3 characters are needed.");
-        } else if (!newUsername.matches("\\w+")) {
+        } else if (!newUsername.matches("[a-zA-z0-9äöüÄÖÜ]+")) {
             clientHandler.writeCustomMessage("Your wanted name contains not allowed characters. Only letters and numbers are allowed.");
         } else if (isUsernameAlreadyInUse(newUsername)) {
             clientHandler.writeCustomMessage("Your wanted name is already in use.");
@@ -209,5 +202,19 @@ public class ChatServer {
 
     public boolean isUsernameAlreadyInUse(String username) {
         return clientHandlers.stream().map(c -> c.getUser().getName().toLowerCase()).anyMatch(c -> c.equals(username.toLowerCase()));
+    }
+
+    private void initCanteenMenuHandler() {
+        Calendar cal = Calendar.getInstance();
+        cal.setTime(new Date());
+
+        String canteenURL = "http://boeblingen.eurest.de/assets/technologie-and-businesspark-boeblingen/restaurant-boeblingen/Microsite/Restaurant-ESS-36-Speiseplan-KW-";
+        canteenURL += new DecimalFormat("00").format(cal.get(Calendar.WEEK_OF_YEAR)) + "-" + cal.get(Calendar.YEAR) + ".pdf";
+
+        try {
+            canteenMenuHandler = new CanteenMenuHandler(canteenURL, Calendar.WEEK_OF_YEAR);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

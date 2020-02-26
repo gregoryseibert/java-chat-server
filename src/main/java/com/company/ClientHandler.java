@@ -62,7 +62,7 @@ public class ClientHandler extends Thread {
                 System.out.println(user.getName() + ": " + received);
 
                 if (received.startsWith("\\")) {
-                    Pattern pattern = Pattern.compile("\\\\(\\w+)(\\s(\\w+))?");
+                    Pattern pattern = Pattern.compile("\\\\(\\w+)(\\s([a-zA-Z0-9äöüÄÖÜ]+))?");
                     Matcher matcher = pattern.matcher(received);
 
                     if (matcher.find()) {

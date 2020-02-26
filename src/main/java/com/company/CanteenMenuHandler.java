@@ -5,6 +5,7 @@ import org.apache.pdfbox.text.PDFTextStripper;
 
 import java.io.IOException;
 import java.net.URL;
+import java.text.DecimalFormat;
 import java.time.DayOfWeek;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,9 +16,11 @@ public class CanteenMenuHandler {
     private String url;
     private Pattern pattern;
     private List<String> hauptgerichte, hauptgerichteSelbstentnahme, frontcookings, hauptgaenge;
+    private int latestWeekOfYear;
 
-    public CanteenMenuHandler(String url) throws IOException {
+    public CanteenMenuHandler(String url, int weekOfYear) throws IOException {
         this.url = url;
+        this.latestWeekOfYear = weekOfYear;
 
         pattern = Pattern.compile("([a-zA-Zäöüß, ´()-]+[ ]?(\\r\\n|\\r|\\n))+(\\d,\\d\\d[ ]?€[ ]?(\\r\\n|\\r|\\n)?)+");
 
@@ -38,10 +41,16 @@ public class CanteenMenuHandler {
         pdfTextStripper.setEndPage(1);
         String text = pdfTextStripper.getText(document).trim().replaceAll(" +", " ");
 
+        document.close();
+
         extractHauptgerichte(text);
         extractHauptgerichteSelbstentnahme(text);
         extractFrontcookings(text);
         extractHauptgaenge(text);
+    }
+
+    public boolean isRecent(int currentWeekOfYear) {
+        return currentWeekOfYear == latestWeekOfYear;
     }
 
     public List<String> getMenuOfDay(DayOfWeek weekDay) {
